@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MQTT Graphviz Viewer</title>
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- MQTT.js library -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <!-- viz.js 2.1.2 -->
+  <script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js" type="application/javascript"></script> 
+  <script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js" type="application/javascript"></script> 
+  <style>
+    /* Main content area (graph) */
+    .main-content {
+      flex-grow: 1; /* Allow the graph area to take up all remaining space */
+    }
+
+    .graph-card {
+      max-width: 100%;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+
+    .graph-card .card-body {
+      max-height: 400px; /* Limiting the height */
+      overflow: auto; /* Allow scrolling if the graph exceeds the max height */
+    }
+
+    /* Ensure SVG scales without exceeding the container */
+    .graph-card svg {
+      width: 100%;
+      height: auto;
+      max-height: 400px; /* Optional: limit the height */
+    }
+
+    /* Fixed console at the bottom */
+    .log-container {
+      max-height: 200px; /* Max height of the log */
+      overflow-y: auto; /* Enable scrolling if the log grows too long */
+      background-color: black; /* Black background for the console */
+      color: green; /* Green text */
+      padding: 10px;
+      border: 1px solid #ddd;
+      font-family: monospace;
+      font-size: 0.9rem;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%; /* Take up full width */
+    }
+
+    .log-entry {
+      padding: 2px 0;
+    }
+
+    .log-entry span {
+      display: inline-block;
+      width: 150px;
+      color: #6c757d; /* Grey timestamp */
+    }
+  </style>
+</head>
+<body class="bg-light d-flex flex-column" style="height: 100vh;">
+
+  <div class="container mt-4 main-content">
+    <h1 class="text-center mb-4">MQTT Graphviz Viewer</h1>
+
+    <div class="row mb-3">
+      <div class="col-md-4">
+        <label for="broker" class="form-label">Broker URL</label>
+        <input type="text" id="broker" class="form-control" value="wss://broker.emqx.io:8084/mqtt">
+      </div>
+
+      <div class="col-md-4">
+        <label for="topic" class="form-label">Topic</label>
+        <input type="text" id="topic" class="form-control" value="pybeamline/output/#">
+      </div>
+
+      <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-primary w-100" onclick="connectMQTT()">Connect</button>
+      </div>
+    </div>
+
+    <!-- Graph Area inside a Bootstrap Card -->
+    <div class="card graph-card">
+      <div class="card-body">
+        <h5 class="card-title">Graphviz Graph</h5>
+        <div id="messages" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Console Log Below the Graph (fixed at the bottom) -->
+  <div class="log-container" id="log-container">
+    <!-- Log messages will appear here -->
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle (includes Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    let client;
+
+    function connectMQTT() {
+      const brokerUrl = document.getElementById('broker').value;
+      const topic = document.getElementById('topic').value;
+      
+      // Create a new MQTT client
+      client = mqtt.connect(brokerUrl);
+
+      // Handle connection success
+      client.on('connect', () => {
+        logMessage(`Connected to ${brokerUrl}`);
+        client.subscribe(topic, (err) => {
+          if (!err) {
+            logMessage(`Subscribed to topic: ${topic}`);
+          } else {
+            logMessage(`Failed to subscribe to topic: ${topic}`);
+          }
+        });
+      });
+
+      // Handle incoming messages
+      client.on('message', (topic, message) => {
+        const msgContainer = document.getElementById('messages');
+
+        // Clear the container before displaying the new graph
+        msgContainer.innerHTML = ''; 
+
+        // Process the Graphviz DOT string from the payload
+        const dotGraph = message.toString();
+        try {
+          // Log the received message with the topic
+          logMessage(`Message received on topic "${topic}"`);
+
+          // Use viz.js to render the DOT graph to an SVG
+          if (typeof Viz !== 'undefined') {
+            const viz = new Viz();
+            viz.renderString(dotGraph).then((svg) => {
+              const svgElement = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+              msgContainer.appendChild(svgElement); // Append the new graph SVG
+            }).catch((err) => {
+              logMessage('Error rendering Graphviz graph: ' + err);
+              msgContainer.appendChild(document.createTextNode('Error rendering Graphviz graph.'));
+            });
+          } else {
+            logMessage("Viz is not loaded.");
+          }
+        } catch (err) {
+          logMessage('Error rendering Graphviz graph: ' + err);
+          msgContainer.appendChild(document.createTextNode('Error rendering Graphviz graph.'));
+        }
+      });
+
+      // Handle errors
+      client.on('error', (err) => {
+        logMessage(`Error: ${err}`);
+      });
+
+      // Handle disconnection
+      client.on('close', () => {
+        logMessage('Disconnected from broker');
+      });
+    }
+
+    function logMessage(message) {
+      const logContainer = document.getElementById('log-container');
+      const timestamp = new Date().toLocaleTimeString();
+      const logEntry = document.createElement('div');
+      logEntry.classList.add('log-entry');
+      logEntry.innerHTML = `<span>[${timestamp}]</span> ${message}`;
+      logContainer.appendChild(logEntry);
+      logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to the latest log entry
+    }
+  </script>
+
+</body>
+</html>
